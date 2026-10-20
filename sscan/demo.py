@@ -24,6 +24,11 @@ def result() -> Result:
       "2箇所（値は伏せ字）\nsrc/pay.ts:12 (3f2a91c)\n.env.local:4 (8bd0e17)",
       "①そのキーを発行元で無効化・再発行 ②偽値なら .gitleaksignore に登録 ③公開リポなら履歴からの除去も検討", key="leak|demo|stripe")
     a("repos", "high", ".env ファイルがgitに登録されている", "~/dev/landing  (example-inc/landing)", ".env", "git rm --cached で追跡を外し .gitignore に追加")
+    a("repos", "medium", "git に登録していない .env に平文のキー: 3件", "~/dev/old-chatbot  (example-inc/old-chatbot)",
+      "最後のコミットから31か月放置されたリポジトリ（使っていないキーが生きたまま残っている可能性）\n"
+      ".env（値は表示しない）\nEXAMPLE_AI_API_KEY（51文字）\nSAMPLE_VECTOR_DB_KEY（36文字）\nDEMO_VOICE_TOKEN（32文字）",
+      "①使っていないキーは発行元で無効化 ②使うキーは資格情報マネージャー（Windows 資格情報マネージャー・1Password 等）へ移す"
+      " ③不要になった古いcloneはフォルダごと削除", key="envfile|demo|old-chatbot")
     a("repos", "high", "依存パッケージに既知の脆弱性", "~/dev/admin-panel  (example-inc/admin-panel)",
       "23件（critical:2 / high:9 / medium:12）\nnext@14.1.0: GHSA-xxxx（見本）", "npm audit fix 等で更新し、動作確認してからPR")
     a("github", "high", "組織で2段階認証が必須になっていない", "example-inc", "", "Settings → Authentication security で必須化", key="gh-2fa|example-inc")

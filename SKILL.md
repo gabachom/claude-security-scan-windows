@@ -20,7 +20,7 @@ powershell -ExecutionPolicy Bypass -File "$SKILL/scripts/install-tools.ps1"   # 
 | モジュール | 必要なもの | 見るもの |
 |---|---|---|
 | `windows` | Windows 10 / 11（管理者権限不要） | サポート期限・BitLocker・ファイアウォール・Defender（リアルタイム保護・定義・改ざん防止・除外）・UAC・SmartScreen・セキュアブート・メモリ整合性・自動ログイン・画面ロック・RDP・SMBv1・Guest / 管理者グループ・Windows Update・待ち受けポート・共有・秘密ファイルの ACL・自動起動（Run・スタートアップ・タスク・サービス。SYSTEM 常駐が書き換え可能／未署名のファイルを起動していないか） |
-| `repos` | gitleaks（依存の脆弱性は内蔵の OSV.dev 検査。設定で osv-scanner も可） | 手元の全gitリポジトリのコミット履歴にある秘密情報（値は伏せ字）・.env のgit登録・依存パッケージの既知脆弱性・OneDrive 等の同期フォルダ内のリポジトリ |
+| `repos` | gitleaks（依存の脆弱性は内蔵の OSV.dev 検査。設定で osv-scanner も可） | 手元の全gitリポジトリのコミット履歴にある秘密情報（値は伏せ字）・.env のgit登録・git に登録していない .env に残った平文のキー（値は表示せず変数名と件数のみ。1年以上コミットのない古いcloneは medium）・依存パッケージの既知脆弱性・OneDrive 等の同期フォルダ内のリポジトリ |
 | `github` | `gh auth login` 済み | 本人と所属orgの2FA・2FA必須設定・未設定メンバー・公開リポ作成権限・外部コラボレーター・Webhook・Dependabot / Secret scanning |
 | `web` | `vercel login`（任意） | Vercel全チームの本番ドメイン＋設定のURL: HTTPS・証明書期限・ヘッダー・.env/.git の露出・プレビュー保護・ブラウザに出る秘密っぽい環境変数 |
 | `aws` | aws CLI のプロファイル | （リージョン単位の検査は既定で東京とバージニア）ルートMFA・MFAなしIAMユーザー・放置キー・公開S3・CloudTrail・GuardDuty・全開放の管理/DBポート・公開RDS |
