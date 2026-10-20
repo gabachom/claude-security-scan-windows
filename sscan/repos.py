@@ -8,7 +8,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
-from .common import WHOLE, ROOT, Result, run, run_json, short_err, tool
+from .common import WHOLE, WINDOWS, ROOT, Result, run, run_json, short_err, tool
 
 GITLEAKS = OSV = None
 
@@ -32,7 +32,7 @@ def discover(roots: list[str], exclude: list[str], max_depth: int) -> list[Path]
             if len(p.parts) - base_depth >= max_depth:
                 dirnames[:] = []
                 continue
-            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not any(x in str(p / d) for x in exclude)]
+            dirnames[:] = [d for d in dirnames if d not in SKIP_DIRS and not any(x in (p / d).as_posix() + "/" for x in exclude)]
     # worktree は本体と履歴を共有するので、git の共通ディレクトリごとに1つ（パスが最も短いもの）だけ残す
     by_common: dict[str, Path] = {}
     for repo in sorted(set(found), key=lambda x: (len(x.parts), str(x))):
@@ -59,21 +59,55 @@ def _owners_and_public() -> tuple[set[str], set[str]]:
     return {o.lower() for o in owners}, pub
 
 
-DEFAULT_ROOTS = ["~/dev", "~/work", "~/projects", "~/src", "~/code", "~/Developer", "~/repos", "~/git", "~/Documents/GitHub"]
+DEFAULT_ROOTS = ["~/dev", "~/work", "~/projects", "~/Project", "~/src", "~/code", "~/Developer", "~/repos", "~/git", "~/source/repos",
+                 "~/Documents/GitHub"]
+
+
+def _default_roots() -> list[str]:
+    """既定の置き場に、Windows の実際の「ドキュメント」（OneDrive へ移動されていることがある）配下の GitHub / Visual Studio を足す。"""
+    roots = list(DEFAULT_ROOTS)
+    if WINDOWS:
+        import winreg
+        try:
+            with winreg.OpenKey(winreg.HKEY_CURRENT_USER, r"Software\Microsoft\Windows\CurrentVersion\Explorer\User Shell Folders") as k:
+                docs = Path(os.path.expandvars(winreg.QueryValueEx(k, "Personal")[0]))
+            roots += [str(docs / "GitHub"), str(docs / "Visual Studio 2022" / "Projects")]
+        except OSError:
+            pass
+    seen, out = set(), []
+    for d in roots:
+        p = Path(os.path.expanduser(d))
+        k = str(p.resolve()).lower() if p.is_dir() else ""
+        if k and k not in seen:
+            seen.add(k)
+            out.append(str(p))
+    return out
+
+
+def _synced(p: Path) -> str:
+    """OneDrive などクラウド同期フォルダの中なら、そのサービス名を返す。"""
+    s = str(p).lower() + "\\"
+    for k in ("OneDrive", "OneDriveConsumer", "OneDriveCommercial"):
+        v = os.environ.get(k)
+        if v and s.startswith(v.lower().rstrip("\\") + "\\"):
+            return "OneDrive"
+    if "\\dropbox\\" in s:
+        return "Dropbox"
+    return "Google ドライブ" if "\\google drive\\" in s or "\\マイドライブ\\" in s else ""
 
 
 def scan(cfg: dict) -> Result:
     global GITLEAKS, OSV
     c = cfg.get("repos", {})
     r = Result()
-    GITLEAKS, OSV = tool("gitleaks"), tool("osv-scanner")
+    GITLEAKS, OSV = _runnable(r, "gitleaks", ["version"]), _runnable(r, "osv-scanner", ["--version"])
     if not GITLEAKS:
         c = {**c, "gitleaks": False, "secret_dirs": []}
-        r.cov(M, "gitleaks", "skip", "未インストール（scripts/install-tools.sh で入る）。秘密情報の検査を省略", blocks=[("秘密情報", "")])
+        r.cov(M, "gitleaks", "skip", "未インストールか起動できない（scripts/install-tools.ps1 で入る）。秘密情報の検査を省略", blocks=[("秘密情報", "")])
     if not OSV:
         c = {**c, "osv": False}
-        r.cov(M, "osv-scanner", "skip", "未インストール（scripts/install-tools.sh で入る）。依存の脆弱性検査を省略", blocks=[("依存パッケージ", "")])
-    roots = c.get("roots") or [d for d in DEFAULT_ROOTS if Path(os.path.expanduser(d)).is_dir()]
+        r.cov(M, "osv-scanner", "skip", "未インストールか起動できない（scripts/install-tools.ps1 で入る）。依存の脆弱性検査を省略", blocks=[("依存パッケージ", "")])
+    roots = c.get("roots") or _default_roots()
     repos = discover(roots, c.get("exclude", ["/_archive/", "/node_modules/"]), c.get("max_depth", 6))
     owners, public = _owners_and_public()
     # 他者のリポジトリを手元にcloneしただけのもの（llama.cpp 等）は自分の漏えい・脆弱性ではないので外す
@@ -86,6 +120,19 @@ def scan(cfg: dict) -> Result:
     for d in c.get("secret_dirs", ["~/.claude/skills"]):
         _scan_dir(r, Path(os.path.expanduser(d)))
     return r
+
+
+def _runnable(r: Result, name: str, probe: list[str]) -> str | None:
+    """見つかっても起動できないことがある（ウイルス対策ソフトや Smart App Control が未署名の exe を止める）。"""
+    path = tool(name)
+    if not path:
+        return None
+    rc, _, err = run([path, *probe], 30)
+    if rc in (0, 1):
+        return path
+    r.cov(M, f"{name} の起動", "error", f"起動できない（rc={rc}）: {short_err(err[-120:])}。"
+          "ウイルス対策ソフトが未署名の実行ファイルを止めている可能性。bin フォルダを除外に入れるか、winget で入れ直す", blocks=[])
+    return None
 
 
 def _scan_dir(r: Result, d: Path):
@@ -102,14 +149,14 @@ def _scan_dir(r: Result, d: Path):
             return
         by_file: dict[str, list[str]] = {}
         own_reports = str(ROOT / "reports")
-        for l in json.loads(Path(rp).read_text() or "[]"):
-            if l.get("File", "").startswith(own_reports):  # このツール自身のレポート（差分キーのハッシュが誤検知される）
+        for l in json.loads(Path(rp).read_text(encoding="utf-8", errors="replace") or "[]"):
+            if l.get("File", "").lower().startswith(own_reports.lower()):  # このツール自身のレポート（差分キーのハッシュが誤検知される）
                 continue
             by_file.setdefault(l.get("File", "?"), []).append(f'{l.get("RuleID")} 行{l.get("StartLine")}')
         for f, hits in by_file.items():
             r.add(M, "medium", "ファイルに秘密情報らしき文字列（ローカルの置き場）", _label(Path(f)),
                   "値は伏せ字\n" + "\n".join(hits[:10]),
-                  "本物のキーなら環境変数（~/.zshenv）へ移し、共有・公開するスキルに含めない。偽値なら無視",
+                  "本物のキーならユーザー環境変数や資格情報マネージャーへ移し、共有・公開するスキルに含めない。偽値なら無視",
                   key=f"dirleak|{f}")
         r.cov(M, f"秘密情報検査 {_label(d)}", "ok", f"{len(by_file)}ファイル")
     finally:
@@ -133,8 +180,18 @@ def _scan_repo(repo: Path, public: set[str], c: dict) -> Result:
     r = Result()
     remote = _remote(repo)
     is_public = remote in public
-    inactive = any(x in str(repo) for x in ("/_archive/", "/_inactive/"))
+    inactive = any(x in repo.as_posix() + "/" for x in ("/_archive/", "/_inactive/"))
     where = _label(repo) + (f"  ({remote}・公開)" if is_public else (f"  ({remote})" if remote else "  (リモートなし)"))
+
+    # 0) クラウド同期フォルダの中のリポジトリ（.gitignore で除外した .env も同期される。同期が .git を壊すこともある）
+    svc = _synced(repo)
+    if svc:
+        _, ign, _ = run(["git", "-C", str(repo), "ls-files", "--others", "--ignored", "--exclude-standard", "--directory"], 60)
+        envs = [f for f in ign.splitlines() if ENV_TRACKED.search(f) and not ENV_OK.search(f)]
+        r.add(M, "medium" if envs else "low", f"リポジトリが {svc} の同期フォルダの中にある", where,
+              ("git では除外している .env もクラウドへ同期されている: " + ", ".join(envs[:5])) if envs else "コードと .git の中身がクラウドへ同期される",
+              f"開発物は %USERPROFILE%\\Project など同期外へ移す（{svc} の同期中に .git や node_modules が壊れることもある）",
+              key=f"synced|{repo}")
 
     # 1) .env の追跡
     _, out, _ = run(["git", "-C", str(repo), "ls-files"], 30)
@@ -152,7 +209,7 @@ def _scan_repo(repo: Path, public: set[str], c: dict) -> Result:
             rc, _, err = run([GITLEAKS, "git", str(repo), "--redact", "--no-banner", "--log-level", "error",
                               "--report-format", "json", "--report-path", rp, "--exit-code", "0"], timeout=c.get("gitleaks_timeout", 600))
             if rc == 0:
-                leaks = json.loads(Path(rp).read_text() or "[]")
+                leaks = json.loads(Path(rp).read_text(encoding="utf-8", errors="replace") or "[]")
                 by_rule: dict[str, list[str]] = {}
                 for l in leaks:
                     by_rule.setdefault(l.get("RuleID", "?"), []).append(f'{l.get("File")}:{l.get("StartLine")} ({(l.get("Commit") or "")[:7]})')

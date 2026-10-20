@@ -1,13 +1,15 @@
-# security-scan の設定例。無くても動く（gh / aws / vercel / gog のログイン状態から対象を自動検出する）。
-# 使うときは ~/.config/security-scan/config.toml にコピーして編集する。秘密値は書かない。
+# security-scan（Windows版）の設定例。無くても動く（gh / aws / vercel / gog のログイン状態から対象を自動検出する）。
+# 使うときは %USERPROFILE%\.config\security-scan\config.toml にコピーして編集する。秘密値は書かない。
+# Windows のパスは "C:/work/app" のように / で書くか、'C:\work\app' のように ' で囲む（" の中の \ はエスケープになる）。
 
-[mac]
-check_updates = true            # softwareupdate -l（30秒ほどかかる）
+[windows]
+check_updates = true            # Windows Update の未適用を検索（1〜5分かかることがある）
+check_acl = true                # SYSTEM 権限で動くサービス・タスクの実行ファイルの書き換え権限と署名を確認
 
 [repos]
-# 省略時は ~/dev ~/work ~/projects ~/src ~/code ~/Developer ~/repos ~/git のうち存在するもの
-# roots = ["~/dev"]
-exclude = ["/_archive/", "/node_modules/"]
+# 省略時は ~/dev ~/work ~/projects ~/Project ~/src ~/code ~/repos ~/git ~/source/repos と「ドキュメント\GitHub」のうち存在するもの
+# roots = ["~/dev", "C:/work"]
+exclude = ["/_archive/", "/node_modules/"]   # パスの区切りは / で書く（Windows でも / に揃えて照合する）
 max_depth = 6
 workers = 4
 gitleaks = true

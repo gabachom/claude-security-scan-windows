@@ -1,6 +1,8 @@
 reports/
 bin/gitleaks
 bin/osv-scanner
+bin/*.exe
 __pycache__/
 config.toml
 .DS_Store
+Thumbs.db

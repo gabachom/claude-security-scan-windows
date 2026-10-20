@@ -51,7 +51,7 @@ def scan(cfg: dict) -> Result:
     r.cov(M, "対象プロジェクト", "ok", f"{len(projects)}件（うち調べる対象 {len(active)}件）")
     if not token:
         r.cov(M, "Security Advisor", "skip",
-              "RLS等の診断には SUPABASE_ACCESS_TOKEN が必要（ダッシュボード → Account → Access Tokens で作成し export）", blocks=WHOLE)
+              "RLS等の診断には SUPABASE_ACCESS_TOKEN が必要（ダッシュボード → Account → Access Tokens で作成し、ユーザー環境変数に設定）", blocks=WHOLE)
         return r
     for p in active:
         ref = p.get("ref") or p.get("id")

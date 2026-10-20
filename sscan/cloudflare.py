@@ -51,7 +51,7 @@ def scan(cfg: dict) -> Result:
     c = cfg.get("cloudflare", {})
     token = os.environ.get(c.get("token_env", "CLOUDFLARE_API_TOKEN"), "")
     if not token:
-        r.cov(M, "Cloudflare", "skip", "環境変数 CLOUDFLARE_API_TOKEN が無い（読み取り専用トークンを作って export）", blocks=WHOLE)
+        r.cov(M, "Cloudflare", "skip", "環境変数 CLOUDFLARE_API_TOKEN が無い（読み取り専用トークンを作り、ユーザー環境変数に設定）", blocks=WHOLE)
         return r
     zones, err = _all("/zones", token)
     if zones is None:

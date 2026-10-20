@@ -1,15 +1,14 @@
-# claude-security-scan
+# claude-security-scan（Windows版）
 
-**「セキュリティチェックして」の一言で、自分の開発環境をまるごと点検する Claude Code スキル。**
+**「セキュリティチェックして」の一言で、自分の開発環境をまるごと点検する Claude Code スキルの Windows 版。**
 
-Mac・手元の全gitリポジトリ・GitHub・Vercelと公開サイト・クラウド（AWS / Google Cloud / Azure / Cloudflare / Supabase）・Gmail を**読み取り専用**で横断スキャンし、
+Windows 本体・手元の全gitリポジトリ・GitHub・Vercelと公開サイト・クラウド（AWS / Google Cloud / Azure / Cloudflare / Supabase）・Gmail を**読み取り専用**で横断スキャンし、
 重要度別のレポートと「前回から増えたもの」を出します。設定の書き換え・送信・削除は一切しません。
 
-![見本データのレポート](docs/report-demo.png)
+> 元のプロジェクト: [chaenmasahiro0425/claude-security-scan](https://github.com/chaenmasahiro0425/claude-security-scan)（Masahiro Chaen 氏・MIT License・macOS 向け）。
+> このリポジトリはそれを Windows 向けに改変したものです。変更点は [NOTICE.md](NOTICE.md) を参照してください。
 
-> **Claude Code・Codex をマスターしたい方へ**　非エンジニア向けハンズオン講座（講義5時間25分・資料180ページ・Skill配布キット付き）のアーカイブを note で公開しています → [note を見る](https://note.com/chaen_channel/n/na50320645814)
->
-> **法人の方へ**　会社全体のセキュリティを一度プロに見てほしい場合は、株式会社デジライズのセキュリティ診断からご相談ください → [法人のご相談はこちら](https://security.digirise.ai/?utm_source=github&utm_medium=readme&utm_campaign=security-scan-oss#consult)
+![見本データのレポート](docs/report-demo.png)
 
 ## なぜ作ったか
 
@@ -20,6 +19,7 @@ Mac・手元の全gitリポジトリ・GitHub・Vercelと公開サイト・ク�
 - MFAの無いクラウドの管理者アカウント
 - 2段階認証を必須にしていない GitHub の組織
 - 乗っ取られたメールに仕込まれた自動転送
+- 暗号化されていないノートPC、止まったままの Windows Update、OneDrive に同期された `.env`
 
 どれも、見に行けば数秒で分かります。ただ、確認する場所が散らばっていて、毎週全部を見て回る人はいません。
 それを Claude Code に任せるためのスキルです。
@@ -28,8 +28,8 @@ Mac・手元の全gitリポジトリ・GitHub・Vercelと公開サイト・ク�
 
 | 領域 | 主なチェック |
 |---|---|
-| Mac本体 | FileVault・ファイアウォール・Gatekeeper・SIP・自動ログイン・画面ロック・未適用アップデート・外から接続できるポート・~/.ssh の権限・常駐プログラム（root権限の常駐が、書き換え可能な場所や未署名のプログラムを起動していないか） |
-| コード | 手元の全gitリポジトリのコミット履歴にある秘密情報（[gitleaks](https://github.com/gitleaks/gitleaks)・値は伏せ字）・`.env` のgit登録・依存パッケージの既知脆弱性（[osv-scanner](https://github.com/google/osv-scanner)） |
+| Windows本体 | サポート期限（Windows 10 / 11 の各版）・BitLocker / デバイスの暗号化・ファイアウォール（全プロファイル）・Microsoft Defender（リアルタイム保護・定義ファイル・改ざん防止・広すぎる除外）・UAC・SmartScreen・セキュアブート・メモリ整合性・自動ログインと平文パスワード・画面ロック／スリープ復帰時のサインイン・リモートデスクトップ（NLA）・SMBv1・Guest / Administrator・管理者グループ・未適用の Windows Update・外から接続できるポート・共有フォルダ・SSH秘密鍵や認証情報ファイルの ACL・`.git-credentials`・自動起動（Run キー・スタートアップ・タスクスケジューラ・サービス。SYSTEM 権限の常駐が書き換え可能／未署名のファイルを起動していないか、一時フォルダからの起動や難読化された PowerShell がないか） |
+| コード | 手元の全gitリポジトリのコミット履歴にある秘密情報（[gitleaks](https://github.com/gitleaks/gitleaks)・値は伏せ字）・`.env` のgit登録・依存パッケージの既知脆弱性（[osv-scanner](https://github.com/google/osv-scanner)）・OneDrive 等の同期フォルダ内のリポジトリ（除外したはずの `.env` がクラウドへ上がる） |
 | GitHub | 本人と所属組織の2FA・2FA必須設定・未設定のメンバー・公開リポ作成権限・外部コラボレーター・Webhook・Dependabot / Secret scanning のアラート |
 | Webサイト・Vercel | 全チームの本番ドメイン: HTTPS・証明書期限・セキュリティヘッダー・`.env` / `.git` の露出・プレビューURLの保護・ブラウザに出てしまう秘密っぽい環境変数 |
 | AWS | ルートのMFA・MFAの無いIAMユーザー・放置されたアクセスキー・公開S3・CloudTrail・GuardDuty・全開放の管理/DBポート・公開RDS |
@@ -41,28 +41,35 @@ Mac・手元の全gitリポジトリ・GitHub・Vercelと公開サイト・ク�
 
 入っているCLIと、設定したAPIトークン（Cloudflare・Supabase）だけを使います。無いものは「確認できなかった項目」に理由つきで出るだけで、止まりません。
 **「確認できなかった」を「問題なし」と混同しない**のがこのツールの方針です。
+Windows 本体の検査は**管理者権限なし**で動きます（管理者でないと読めない項目は「確認できなかった」に出ます）。
 
 ## 導入
 
-```bash
-git clone https://github.com/chaenmasahiro0425/claude-security-scan ~/.claude/skills/security-scan
-bash ~/.claude/skills/security-scan/scripts/install-tools.sh   # gitleaks と osv-scanner を取得（SHA256を検証）
+PowerShell で:
+
+```powershell
+git clone https://github.com/gabachom/claude-security-scan-windows "$env:USERPROFILE\.claude\skills\security-scan"
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.claude\skills\security-scan\scripts\install-tools.ps1"   # gitleaks と osv-scanner を取得（SHA256を検証）
 ```
 
 あとは Claude Code で **「セキュリティチェックして」** と言うだけです。
 
-必要なもの: Python 3.11 以上。各領域を見るには、それぞれのCLIにログインしておきます（入っているものだけでOK）。
+必要なもの: Windows 10 / 11、[Python 3.11 以上](https://www.python.org/downloads/windows/)（`py` ランチャー付き。Microsoft Store のエイリアスではなく python.org 版を推奨）、Git for Windows。
+各領域を見るには、それぞれのCLIにログインしておきます（入っているものだけでOK）。
 
 | 領域 | 準備 |
 |---|---|
-| GitHub | `gh auth login` |
-| Vercel | `vercel login` |
-| AWS | `aws configure` または `aws sso login` |
-| Google Cloud | `gcloud auth login`（閲覧者 roles/viewer 相当の権限） |
-| Azure | `az login`（閲覧者 Reader 相当の権限） |
-| Cloudflare | 読み取り専用のAPIトークンを `CLOUDFLARE_API_TOKEN` に export |
-| Supabase | `supabase login`。RLSなどの診断は `SUPABASE_ACCESS_TOKEN` を export |
+| GitHub | `winget install GitHub.cli` → `gh auth login` |
+| Vercel | `npm i -g vercel` → `vercel login` |
+| AWS | `winget install Amazon.AWSCLI` → `aws configure` または `aws sso login` |
+| Google Cloud | `winget install Google.CloudSDK` → `gcloud auth login`（閲覧者 roles/viewer 相当の権限） |
+| Azure | `winget install Microsoft.AzureCLI` → `az login`（閲覧者 Reader 相当の権限） |
+| Cloudflare | 読み取り専用のAPIトークンをユーザー環境変数 `CLOUDFLARE_API_TOKEN` に設定 |
+| Supabase | `supabase login`。RLSなどの診断はユーザー環境変数 `SUPABASE_ACCESS_TOKEN` を設定 |
 | Gmail | [gog](https://github.com/steipete/gogcli) で `gog auth add you@example.com` |
+
+ユーザー環境変数は「設定 → システム → バージョン情報 → システムの詳細設定 → 環境変数」、または PowerShell で
+`[Environment]::SetEnvironmentVariable('CLOUDFLARE_API_TOKEN', '<値>', 'User')` で設定します（ターミナルの開き直しが必要）。
 
 ## 使い方
 
@@ -73,46 +80,54 @@ Claude Code から:
 > 直せるところある？
 > 毎週月曜にスキャンするようにして
 
-ターミナルから:
+PowerShell から:
 
-```bash
-python3 ~/.claude/skills/security-scan/scan.py                # 全部
-python3 ~/.claude/skills/security-scan/scan.py --skip repos   # 重いコード検査を外す
-python3 ~/.claude/skills/security-scan/scan.py --demo --open  # 見本データで見た目だけ確認
-bash ~/.claude/skills/security-scan/scripts/install-schedule.sh   # 毎週月曜 8:00 に自動実行（macOS）
+```powershell
+$S = "$env:USERPROFILE\.claude\skills\security-scan"
+py -3 "$S\scan.py"                       # 全部
+py -3 "$S\scan.py" --skip repos          # 重いコード検査を外す
+py -3 "$S\scan.py" --only windows --open # Windows 本体だけ見て、終わったらブラウザで開く
+py -3 "$S\scan.py" --demo --open         # 見本データで見た目だけ確認
+powershell -ExecutionPolicy Bypass -File "$S\scripts\install-schedule.ps1"   # 毎週月曜 8:00 に自動実行（タスクスケジューラ）
 ```
 
-結果は `reports/<日時>/report.html`（重要度・領域・NEWだけで絞り込み）に保存されます。
+`bin\security-scan.cmd` を PATH に通せば `security-scan --skip repos` のようにも呼べます。
+
+結果は `reports\<日時>\report.html`（重要度・領域・NEWだけで絞り込み）に保存され、最新の結果は `reports\latest\` にコピーされます。
 
 ## 安全のための作り
 
-- **読み取りだけ**: gog は `--readonly`、各クラウドは list / get / describe と API の GET だけ、Webサイトへも GET だけ
-- **秘密の値を残さない**: gitleaks は `--redact`、Vercelの環境変数は名前と種類だけ、AWSのキーIDは末尾4桁、常駐プログラムの起動引数は記録しない。エラー文も伏せ字にしてから保存
+- **読み取りだけ**: Windows はレジストリの読み取りと PowerShell の `Get-*` 系だけ、gog は `--readonly`、各クラウドは list / get / describe と API の GET だけ、Webサイトへも GET だけ
+- **秘密の値を残さない**: gitleaks は `--redact`、Vercelの環境変数は名前と種類だけ、AWSのキーIDは末尾4桁、自動起動・タスク・サービスの起動引数は記録しない（危険な書き方かどうかの判定にだけ使う）、レジストリの平文パスワードは「有無」だけ。エラー文も伏せ字にしてから保存
+- **外から来た文字列をコードとして実行しない**: PowerShell へはスクリプトを `-EncodedCommand` で渡し、パス等のデータは環境変数の JSON で渡す。`gcloud.cmd` / `az.cmd` などのバッチ経由の CLI には、cmd.exe が解釈する文字を含む引数を渡さない
 - **見えなかったものを「解消」にしない**: 取得に失敗した範囲（アカウント・組織・リポジトリ単位）の指摘は、前回との比較で「解消」にも「新規」にも数えない
-- レポートは自分のPCにだけ保存（権限700）。弱点の一覧なので共有に注意してください
+- レポートは自分のPCにだけ保存し、`reports` フォルダは本人と SYSTEM だけが読める ACL にする。弱点の一覧なので共有に注意してください。OneDrive 等の同期フォルダ内に置いている場合は警告します（環境変数 `SECURITY_SCAN_REPORTS` で保存先を変えられます）
 
 ## 設定（任意）
 
 無くても動きます。対象を絞りたいときだけ [`config.example.toml`](config.example.toml) を
-`~/.config/security-scan/config.toml` にコピーして編集してください。
+`%USERPROFILE%\.config\security-scan\config.toml` にコピーして編集してください。
 
 ## 制限
 
+- 管理者権限でしか読めない項目（Defender の除外一覧・共有フォルダの一覧など）は、通常の実行では「確認できなかった項目」に出ます
+- Windows 10 の ESU（延長セキュリティ更新）の加入状況は判定できません。加入済みならサポート終了の指摘は無視してください
 - Google Workspace 全体の管理設定（社員の2段階認証の強制など）は Admin API の委任が必要なため対象外です
 - AWS のリージョン単位の検査（セキュリティグループ・RDS・GuardDuty）は、既定で東京（ap-northeast-1）とバージニア（us-east-1）だけです。ほかのリージョンを使っている場合は設定の `[aws] regions` に足してください
 - 外部サイトへの攻撃的な検査（総当たり・ファジング）はしません。自分が管理するサイトだけを対象にしてください
 - 検出は手がかりです。最終判断と修正は人が行ってください
 
+## つまずき
+
+- `osv-scanner.exe` / `gitleaks.exe` が「アクセスが拒否されました」で起動しない → ウイルス対策ソフトが未署名の実行ファイルを止めています。`bin` フォルダを除外に入れるか、`winget install Gitleaks.Gitleaks` / `winget install Google.OSVScanner` で入れ直してください（PATH 上のものを使います）
+- `py` が見つからない → python.org のインストーラーで「py launcher」を有効にして入れ直す
+- タスクスケジューラから実行したときに通知が出ない → 設定 → システム → 通知 で「Windows PowerShell」の通知を許可する
+
 ## 改善・追加を歓迎します
 
-オープンソースです。「このクラウドにも対応してほしい」「この検査は誤検知が多い」「こういう漏えいの入口も見たい」など、
-Issue・Pull Request で気軽に提案してください。手順は [CONTRIBUTING.md](CONTRIBUTING.md) にあります。
-
-## もっと使いこなしたい方・法人の方へ
-
-- **Claude Code・Codex をマスターするなら**：このスキルの作り方（Skill・hooks・CLAUDE.md / AGENTS.md の設定）まで学べるハンズオン講座のアーカイブ → [note](https://note.com/chaen_channel/n/na50320645814)
-- **法人のセキュリティのご相談**：サイトの無料診断から、詳しい診断・対策・AIセキュリティ教育まで → [デジライズ セキュリティ診断（ご相談フォーム）](https://security.digirise.ai/?utm_source=github&utm_medium=readme&utm_campaign=security-scan-oss#consult)
+「この検査は誤検知が多い」「こういう漏えいの入口も見たい」など、Issue・Pull Request で気軽に提案してください。手順は [CONTRIBUTING.md](CONTRIBUTING.md) にあります。
+macOS 版の改善は[元のリポジトリ](https://github.com/chaenmasahiro0425/claude-security-scan)へどうぞ。
 
 ## ライセンス
 
-MIT
+MIT（[LICENSE](LICENSE)）。元の作者 Masahiro Chaen 氏の著作権表示を含みます。

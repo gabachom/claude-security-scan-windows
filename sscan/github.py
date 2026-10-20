@@ -24,7 +24,7 @@ def _api(path: str, paginate: bool = False):
 def scan(cfg: dict) -> Result:
     r = Result()
     if not tool("gh"):
-        r.cov(M, "GitHub", "skip", "gh CLI が無い（brew install gh → gh auth login）", blocks=WHOLE)
+        r.cov(M, "GitHub", "skip", "gh CLI が無い（winget install GitHub.cli → gh auth login）", blocks=WHOLE)
         return r
     me, err = _api("user")
     if not me:

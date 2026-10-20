@@ -3,17 +3,23 @@ from __future__ import annotations
 
 from .common import Result
 
-NEW_KEYS = {"launch|/Library/LaunchDaemons/com.example.helper.plist", "leak|demo|stripe", "gh-2fa|example-inc"}
+NEW_KEYS = {"svc|examplehelper", "leak|demo|stripe", "gh-2fa|example-inc"}
 
 
 def result() -> Result:
     r = Result()
     a = r.add
-    a("mac", "high", "常駐プログラム: com.example.helper", "/Library/LaunchDaemons/com.example.helper.plist",
-      "root権限で動く常駐なのに、起動するプログラムがユーザー権限で書き換えられる場所にある\n起動: ~/.config/example/helper（引数は記録しない）",
-      "心当たりがなければ launchctl bootout で止めてから plist を隔離する", key="launch|/Library/LaunchDaemons/com.example.helper.plist")
-    a("mac", "high", "ファイアウォールがオフ", "このMac", "Firewall is disabled. (State = 0)", "システム設定 → ネットワーク → ファイアウォール をオンにする")
-    a("mac", "low", "外部から接続を受け付けるポート 3000", "tcp/3000", "プロセス: node", "開発サーバーは 127.0.0.1 にバインドする")
+    a("windows", "high", "サービス: Example Helper Service", "ExampleHelper（LocalSystem / Auto）",
+      "SYSTEM/管理者権限で動くのに、起動するファイルを Users（全ユーザー） が書き換えられる（すり替えで乗っ取られる）\n"
+      "起動: C:\\ProgramData\\ExampleHelper\\helper.exe（引数は秘密が入りうるので記録しない）",
+      "心当たりがなければ services.msc で無効にしてから提供元を確認する", key="svc|examplehelper")
+    a("windows", "critical", "ディスク暗号化（BitLocker / デバイスの暗号化）がオフ", "このPC C:", "システムドライブが暗号化されていない",
+      "設定 → プライバシーとセキュリティ → デバイスの暗号化 をオンにし、回復キーを保存する", key="win-bitlocker")
+    a("windows", "high", "サポートが終了したWindowsを使っている（セキュリティ更新が来ない）", "このPC",
+      "Windows 10 22H2 (build 19045, Professional) / サポート終了 2025-10-14", "設定 → Windows Update から Windows 11 へ更新する", key="win-eol")
+    a("windows", "medium", "外部から接続を受け付けるポート 3389（リモートデスクトップ）", "tcp/3389", "プロセス: svchost",
+      "使っていなければリモートデスクトップをオフにする", key="win-port|3389")
+    a("windows", "low", "外部から接続を受け付けるポート 3000", "tcp/3000", "プロセス: node", "開発サーバーは 127.0.0.1 にバインドする")
     a("repos", "critical", "コミット履歴に秘密情報らしき文字列: stripe-access-token", "~/dev/shop-demo  (example-inc/shop-demo・公開)",
       "2箇所（値は伏せ字）\nsrc/pay.ts:12 (3f2a91c)\n.env.local:4 (8bd0e17)",
       "①そのキーを発行元で無効化・再発行 ②偽値なら .gitleaksignore に登録 ③公開リポなら履歴からの除去も検討", key="leak|demo|stripe")
@@ -37,7 +43,7 @@ def result() -> Result:
     a("cloudflare", "medium", "SSL/TLS が Flexible（Cloudflare→サーバー間が暗号化されない）", "example.com", "", "Full (strict) に")
     a("gmail", "high", "全メールの自動転送がオン", "you@example.com", "転送先: unknown@example.net", "覚えがなければ即オフにしてパスワード変更")
     a("gmail", "info", "このアカウントから送信できる別アドレス（Send As）", "you@example.com", "info@example.com", "")
-    for m, item in [("mac", "FileVault"), ("mac", "Gatekeeper"), ("github", "example-inc Dependabot"), ("aws", "prod (000000000000)"),
+    for m, item in [("windows", "ウイルス対策"), ("windows", "UAC"), ("github", "example-inc Dependabot"), ("aws", "prod (000000000000)"),
                     ("gmail", "you@example.com")]:
         r.cov(m, item, "ok")
     r.cov("gmail", "Workspace管理 (example.com)", "skip", "Admin APIはドメイン全体の委任が必要")
