@@ -1,6 +1,10 @@
-﻿# gitleaks と osv-scanner を公式 GitHub リリースから bin\ に取得し、SHA256 を検証する。
+﻿# gitleaks を公式 GitHub リリースから bin\ に取得し、SHA256 を検証する。
+# 依存パッケージの脆弱性検査は既定で内蔵版（OSV.dev API・Python だけ）を使うので osv-scanner は不要。
+# osv-scanner も使いたいときだけ -WithOsvScanner を付ける（未署名の exe なのでウイルス対策ソフトに止められることがある）。
 # winget / scoop 等で既に入っていれば不要（PATH 上のものを使う）。
 #   powershell -ExecutionPolicy Bypass -File scripts\install-tools.ps1
+#   powershell -ExecutionPolicy Bypass -File scripts\install-tools.ps1 -WithOsvScanner
+param([switch]$WithOsvScanner)
 $ErrorActionPreference = 'Stop'
 $ProgressPreference = 'SilentlyContinue'
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
@@ -42,6 +46,7 @@ try {
   Expand-Archive -LiteralPath (Join-Path $Tmp $zip) -DestinationPath (Join-Path $Tmp 'gl') -Force
   Copy-Item -LiteralPath (Join-Path $Tmp 'gl\gitleaks.exe') -Destination (Join-Path $Bin 'gitleaks.exe') -Force
 
+  if ($WithOsvScanner) {
   Write-Host "osv-scanner v$OsvVersion (windows/$osv)"
   $exe = "osv-scanner_windows_${osv}.exe"
   $base = "https://github.com/google/osv-scanner/releases/download/v$OsvVersion"
@@ -49,11 +54,26 @@ try {
   Get-File "$base/osv-scanner_SHA256SUMS" (Join-Path $Tmp 'osv_sums.txt')
   Test-Sum (Join-Path $Tmp $exe) (Join-Path $Tmp 'osv_sums.txt')
   Copy-Item -LiteralPath (Join-Path $Tmp $exe) -Destination (Join-Path $Bin 'osv-scanner.exe') -Force
+  Write-Host "  使うには config.toml の [repos] に osv_engine = `"osv-scanner`" を書く"
+  }
 
   # インターネットから来た印（Zone.Identifier）を外して SmartScreen の確認を出さない（SHA256 は上で検証済み）
   Get-ChildItem -LiteralPath $Bin -Filter *.exe | Unblock-File
-  & (Join-Path $Bin 'gitleaks.exe') version
-  & (Join-Path $Bin 'osv-scanner.exe') --version | Select-Object -First 1
+  # ウイルス対策ソフトが未署名の exe を止めることがあるので、起動できるかを確かめて結果だけ伝える（失敗しても止めない）
+  $checks = @(, @('gitleaks.exe', 'version'))
+  if ($WithOsvScanner) { $checks += , @('osv-scanner.exe', '--version') }
+  foreach ($t in $checks) {
+    try {
+      $v = & (Join-Path $Bin $t[0]) $t[1] 2>&1 | Select-Object -First 1
+      Write-Host "  OK $($t[0]): $v"
+    } catch {
+      if ($t[0] -eq 'osv-scanner.exe') {
+        Write-Warning "osv-scanner.exe を起動できません（ウイルス対策ソフトがブロックした可能性）。既定の内蔵版（OSV.dev API）のままで問題ありません"
+      } else {
+        Write-Warning "gitleaks.exe を起動できません（ウイルス対策ソフトがブロックした可能性）。bin フォルダを除外に入れるか winget install Gitleaks.Gitleaks で入れ直してください"
+      }
+    }
+  }
   Write-Host "完了: $Bin"
 } finally {
   Remove-Item -LiteralPath $Tmp -Recurse -Force -ErrorAction SilentlyContinue

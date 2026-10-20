@@ -125,8 +125,9 @@ def scan(cfg: dict) -> Result:
     if not GITLEAKS:
         c = {**c, "gitleaks": False, "secret_dirs": []}
         r.cov(M, "gitleaks", "skip", "未インストールか起動できない（scripts/install-tools.ps1 で入る）。秘密情報の検査を省略", blocks=[("秘密情報", "")])
-    # 依存の脆弱性: auto = osv-scanner が起動できればそれ、だめなら内蔵（OSV.dev API に直接問い合わせ）/ builtin / osv-scanner
-    engine = c.get("osv_engine", "auto")
+    # 依存の脆弱性: builtin（既定）= 内蔵（OSV.dev API に直接問い合わせ）/ osv-scanner / auto = osv-scanner が起動できればそれ
+    # 既定で osv-scanner を起動しないのは、未署名の exe を起動するたびにウイルス対策ソフトの警告が出る環境があるため
+    engine = c.get("osv_engine", "builtin")
     OSV = None if engine == "builtin" else _runnable(r if engine == "osv-scanner" else Result(), "osv-scanner", ["--version"])
     if c.get("osv", True) and not OSV:
         if engine == "osv-scanner":

@@ -29,7 +29,7 @@ Windows 本体・手元の全gitリポジトリ・GitHub・Vercelと公開サイ
 | 領域 | 主なチェック |
 |---|---|
 | Windows本体 | サポート期限（Windows 10 / 11 の各版）・BitLocker / デバイスの暗号化・ファイアウォール（全プロファイル）・Microsoft Defender（リアルタイム保護・定義ファイル・改ざん防止・広すぎる除外）・UAC・SmartScreen・セキュアブート・メモリ整合性・自動ログインと平文パスワード・画面ロック／スリープ復帰時のサインイン・リモートデスクトップ（NLA）・SMBv1・Guest / Administrator・管理者グループ・未適用の Windows Update・外から接続できるポート・共有フォルダ・SSH秘密鍵や認証情報ファイルの ACL・`.git-credentials`・自動起動（Run キー・スタートアップ・タスクスケジューラ・サービス。SYSTEM 権限の常駐が書き換え可能／未署名のファイルを起動していないか、一時フォルダからの起動や難読化された PowerShell がないか） |
-| コード | 手元の全gitリポジトリのコミット履歴にある秘密情報（[gitleaks](https://github.com/gitleaks/gitleaks)・値は伏せ字）・`.env` のgit登録・依存パッケージの既知脆弱性（[osv-scanner](https://github.com/google/osv-scanner)、起動できなければ内蔵の [OSV.dev](https://osv.dev) 検査）・OneDrive 等の同期フォルダ内のリポジトリ（除外したはずの `.env` がクラウドへ上がる） |
+| コード | 手元の全gitリポジトリのコミット履歴にある秘密情報（[gitleaks](https://github.com/gitleaks/gitleaks)・値は伏せ字）・`.env` のgit登録・依存パッケージの既知脆弱性（内蔵の [OSV.dev](https://osv.dev) 検査。設定で [osv-scanner](https://github.com/google/osv-scanner) も選べる）・OneDrive 等の同期フォルダ内のリポジトリ（除外したはずの `.env` がクラウドへ上がる） |
 | GitHub | 本人と所属組織の2FA・2FA必須設定・未設定のメンバー・公開リポ作成権限・外部コラボレーター・Webhook・Dependabot / Secret scanning のアラート |
 | Webサイト・Vercel | 全チームの本番ドメイン: HTTPS・証明書期限・セキュリティヘッダー・`.env` / `.git` の露出・プレビューURLの保護・ブラウザに出てしまう秘密っぽい環境変数 |
 | AWS | ルートのMFA・MFAの無いIAMユーザー・放置されたアクセスキー・公開S3・CloudTrail・GuardDuty・全開放の管理/DBポート・公開RDS |
@@ -49,7 +49,7 @@ PowerShell で:
 
 ```powershell
 git clone https://github.com/gabachom/claude-security-scan-windows "$env:USERPROFILE\.claude\skills\security-scan"
-powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.claude\skills\security-scan\scripts\install-tools.ps1"   # gitleaks と osv-scanner を取得（SHA256を検証）
+powershell -ExecutionPolicy Bypass -File "$env:USERPROFILE\.claude\skills\security-scan\scripts\install-tools.ps1"   # gitleaks を取得（SHA256を検証）
 ```
 
 あとは Claude Code で **「セキュリティチェックして」** と言うだけです。
@@ -120,7 +120,8 @@ powershell -ExecutionPolicy Bypass -File "$S\scripts\install-schedule.ps1"   # �
 
 ## つまずき
 
-- `osv-scanner.exe` が「アクセスが拒否されました」で起動しない → ウイルス対策ソフトが未署名の実行ファイルを止めています。そのままでも、依存パッケージの検査は内蔵版（Python だけで動き、ロックファイルのパッケージ名とバージョンを OSV.dev の公開APIに問い合わせる）に自動で切り替わります。
+- 依存パッケージの検査は既定で内蔵版です（Python だけで動き、ロックファイルのパッケージ名とバージョンを OSV.dev の公開APIに問い合わせる。追加の exe 不要）。
+  osv-scanner を使いたい場合は `install-tools.ps1 -WithOsvScanner` で入れ、設定に `osv_engine = "osv-scanner"` を書きます（未署名の exe なのでウイルス対策ソフトに止められることがあります）。
   内蔵版が読むファイル: `package-lock.json` / `pnpm-lock.yaml` / `yarn.lock` / `requirements*.txt`（`==` で固定したもの）/ `poetry.lock` / `Pipfile.lock` / `uv.lock` / `pdm.lock` / `Cargo.lock` / `go.mod` / `Gemfile.lock` / `composer.lock`
 - `gitleaks.exe` が起動しない → `bin` フォルダをウイルス対策ソフトの除外に入れるか、`winget install Gitleaks.Gitleaks` で入れ直してください（PATH 上のものを使います）
 - `py` が見つからない → python.org のインストーラーで「py launcher」を有効にして入れ直す

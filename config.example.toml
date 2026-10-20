@@ -15,7 +15,7 @@ workers = 4
 gitleaks = true
 gitleaks_timeout = 1800
 osv = true
-osv_engine = "auto"            # auto: osv-scanner が起動できればそれ、だめなら内蔵（OSV.dev API に直接問い合わせ）/ builtin / osv-scanner
+osv_engine = "builtin"         # builtin: 内蔵（OSV.dev API に直接問い合わせ・既定）/ osv-scanner / auto（osv-scanner が起動できればそれ）
 # gitで管理していない置き場も、作業ツリーのまま秘密情報を探す
 secret_dirs = ["~/.claude/skills"]
 
