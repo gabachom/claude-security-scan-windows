@@ -5,6 +5,7 @@ import json
 import os
 import re
 import tempfile
+import time
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
@@ -17,6 +18,10 @@ M = "repos"
 SKIP_DIRS = {"node_modules", ".venv", "venv", ".next", "dist", "build", ".git", "__pycache__", ".cache", "vendor", "Pods"}
 ENV_TRACKED = re.compile(r"(^|/)\.env(\.[\w-]+)?$")
 ENV_OK = re.compile(r"\.(example|sample|template|dist|defaults?)$", re.I)
+SECRET_NAME = re.compile(r"KEY|TOKEN|SECRET|PASSWORD", re.I)
+# 見本の値（your-api-key / xxx / changeme / <...> / ${OTHER_VAR} 等）は本物のキーとして数えない
+PLACEHOLDER = re.compile(r"^(your[-_ ]|<.*>$|\$\{.*\}$|(?:[a-z]{1,8}[-_])?x{3,}$|.*\.\.\.|change[-_ ]?me|placeholder|dummy|example|replace|todo|test$|none$|null$|\*+$)", re.I)
+STALE_DAYS = 365
 
 
 def discover(roots: list[str], exclude: list[str], max_depth: int) -> list[Path]:
@@ -230,7 +235,10 @@ def _scan_repo(repo: Path, public: dict[str, str], c: dict) -> Result:
               "\n".join(tracked[:20]),
               "git rm --cached で追跡を外し .gitignore に追加。中のキーは漏れた前提でローテーションする")
 
-    # 2) コミット履歴の秘密情報（値は redact）
+    # 1b) git に登録していない .env に平文のキー（.gitignore で除外していても手元には残り続ける）
+    _env_untracked(r, repo, where, svc)
+
+    # 2)コミット履歴の秘密情報（値は redact）
     if c.get("gitleaks", True):
         with tempfile.NamedTemporaryFile(suffix=".json", delete=False) as tf:
             rp = tf.name
@@ -293,6 +301,59 @@ def _scan_repo(repo: Path, public: dict[str, str], c: dict) -> Result:
         if data:
             _osv(r, data, where, is_public, inactive)
     return r
+
+
+def _secret_vars(path: Path) -> list[tuple[str, int]]:
+    """秘密らしい名前で、見本でない値が入っている変数の（名前, 値の文字数）。値そのものは返さない・残さない。"""
+    out = []
+    for line in path.read_text(encoding="utf-8-sig", errors="replace").splitlines():
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        name, _, val = line.removeprefix("export ").partition("=")
+        name, val = name.strip(), val.strip()
+        if val[:1] in ("'", '"'):
+            val = val[1:].split(val[0], 1)[0]
+        else:
+            val = val.split(" #", 1)[0].strip()
+        if re.fullmatch(r"[A-Za-z_][\w.-]*", name) and SECRET_NAME.search(name) and val and not PLACEHOLDER.match(val):
+            out.append((name, len(val)))
+    return out
+
+
+def _env_untracked(r: Result, repo: Path, where: str, svc: str):
+    """git に登録していない（未追跡・.gitignore で除外）.env を探し、平文のキーが入っているものを報告する。"""
+    rc, out, err = run(["git", "-C", str(repo), "ls-files", "-z", "--others", "--", ":(glob)**/.env", ":(glob)**/.env.*"], 60)
+    if rc != 0:
+        r.cov(M, f"未登録の .env {_label(repo)}", "error", short_err(err[-200:]), blocks=[("ローカルの .env", _label(repo) + "  ")])
+        return
+    files = [f for f in out.split("\0") if f and ENV_TRACKED.search(f) and not ENV_OK.search(f)
+             and not SKIP_DIRS.intersection(f.split("/")[:-1])]
+    if not files:
+        return
+    _, ct, _ = run(["git", "-C", str(repo), "log", "-1", "--format=%ct"], 10)
+    idle = int((time.time() - int(ct.strip())) // 86400) if ct.strip().isdigit() else 0
+    stale = idle > STALE_DAYS
+    for f in files:
+        p = repo / f
+        try:
+            if p.stat().st_size > 1_000_000:
+                r.cov(M, f"未登録の .env {_label(p)}", "skip", "1MB超のため読まない", blocks=[])
+                continue
+            hits = _secret_vars(p)
+        except OSError as e:
+            r.cov(M, f"未登録の .env {_label(p)}", "error", type(e).__name__, blocks=[("ローカルの .env", _label(p))])
+            continue
+        if not hits:
+            continue
+        sev = ("high" if stale else "medium") if svc else ("medium" if stale else "low")
+        note = (f"最後のコミットから{idle // 30}か月放置されたリポジトリ（使っていないキーが生きたまま残っている可能性）\n" if stale else "")
+        note += f"{svc} の同期フォルダの中なので、このファイルはクラウドにも上がっている\n" if svc else ""
+        r.add(M, sev, f"git に登録していない .env に平文のキー: {len(hits)}件", where,
+              note + f"{f}（値は表示しない）\n" + "\n".join(f"{n}（{l}文字）" for n, l in hits[:15]),
+              "①使っていないキーは発行元で無効化 ②使うキーは資格情報マネージャー（Windows 資格情報マネージャー・1Password 等）へ移す"
+              " ③不要になった古いcloneはフォルダごと削除",
+              key=f"envfile|{repo}|{f}")
 
 
 def _sev_of(group: dict) -> str:
