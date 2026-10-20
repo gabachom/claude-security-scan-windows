@@ -1,4 +1,4 @@
-"""ローカルのgitリポジトリ: コミット履歴の秘密情報（gitleaks）・.env の追跡・依存の既知脆弱性（osv-scanner）。"""
+"""ローカルのgitリポジトリ: コミット履歴の秘密情報（gitleaks）・.env の追跡・依存の既知脆弱性（osv-scanner か内蔵の OSV.dev 検査）。"""
 from __future__ import annotations
 
 import json
@@ -8,6 +8,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
+from . import osvlite
 from .common import WHOLE, WINDOWS, ROOT, Result, run, run_json, short_err, tool
 
 GITLEAKS = OSV = None
@@ -120,13 +121,19 @@ def scan(cfg: dict) -> Result:
     global GITLEAKS, OSV
     c = cfg.get("repos", {})
     r = Result()
-    GITLEAKS, OSV = _runnable(r, "gitleaks", ["version"]), _runnable(r, "osv-scanner", ["--version"])
+    GITLEAKS = _runnable(r, "gitleaks", ["version"])
     if not GITLEAKS:
         c = {**c, "gitleaks": False, "secret_dirs": []}
         r.cov(M, "gitleaks", "skip", "未インストールか起動できない（scripts/install-tools.ps1 で入る）。秘密情報の検査を省略", blocks=[("秘密情報", "")])
-    if not OSV:
-        c = {**c, "osv": False}
-        r.cov(M, "osv-scanner", "skip", "未インストールか起動できない（scripts/install-tools.ps1 で入る）。依存の脆弱性検査を省略", blocks=[("依存パッケージ", "")])
+    # 依存の脆弱性: auto = osv-scanner が起動できればそれ、だめなら内蔵（OSV.dev API に直接問い合わせ）/ builtin / osv-scanner
+    engine = c.get("osv_engine", "auto")
+    OSV = None if engine == "builtin" else _runnable(r if engine == "osv-scanner" else Result(), "osv-scanner", ["--version"])
+    if c.get("osv", True) and not OSV:
+        if engine == "osv-scanner":
+            c = {**c, "osv": False}
+            r.cov(M, "osv-scanner", "skip", "未インストールか起動できない（scripts/install-tools.ps1 で入る）。依存の脆弱性検査を省略", blocks=[("依存パッケージ", "")])
+        else:
+            r.cov(M, "依存の脆弱性検査", "ok", "内蔵の検査（OSV.dev API）を使用" + ("" if engine == "builtin" else "。osv-scanner は未インストールか起動できない"))
     roots = c.get("roots") or _default_roots()
     repos = discover(roots, c.get("exclude", ["/_archive/", "/node_modules/"]), c.get("max_depth", 6))
     owners, public = _owners_and_public()
@@ -265,7 +272,15 @@ def _scan_repo(repo: Path, public: dict[str, str], c: dict) -> Result:
             Path(rp).unlink(missing_ok=True)
 
     # 3) 依存の既知脆弱性
-    if c.get("osv", True):
+    if c.get("osv", True) and not OSV:
+        data, notes, err = osvlite.scan_repo(repo)
+        if err:
+            r.cov(M, f"依存の脆弱性 {_label(repo)}", "error", err, blocks=[("依存パッケージ", _label(repo) + "  ")])
+        elif notes:
+            r.cov(M, f"依存ファイル {_label(repo)}", "skip", " / ".join(notes)[:300], blocks=[])
+        if data:
+            _osv(r, data, where, is_public, inactive)
+    elif c.get("osv", True):
         # 脆弱性ありだと exit 1 になるので rc ではなく stdout の JSON で判定する
         rc, out, err = run([OSV, "scan", "source", "-r", "--format", "json", str(repo)], timeout=c.get("osv_timeout", 300))
         try:
@@ -309,6 +324,6 @@ def _osv(r: Result, data: dict, where: str, is_public: bool, inactive: bool):
         worst = {"high": "medium", "medium": "low"}.get(worst, "low")
     summary = " / ".join(f"{k}:{v}" for k, v in counts.items() if v)
     r.add(M, worst, "依存パッケージに既知の脆弱性", where,
-          f"{total}件（{summary}）\n" + "\n".join(t for _, t in sorted(top)[:12]),
+          f"{total}件（{summary}）\n" + "\n".join(t for _, t in sorted(set(top))[:12]),
           "npm audit fix / pip install -U <pkg> 等で更新し、動作確認してからPR。休眠中なら archive 化も検討",
           key=f"osv|{where}")

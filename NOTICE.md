@@ -15,6 +15,8 @@
   （`scripts/install-schedule.ps1` はタスクスケジューラ、`scripts/install-tools.ps1` は Windows 用バイナリを SHA256 検証つきで取得）
 - Windows で動かすための共通部分の修正（`.cmd` ラッパーの安全な起動、UTF-8 入出力、`reports/latest` の symlink 廃止、レポートの ACL 制限、トースト通知）
 - OneDrive などクラウド同期フォルダの中にあるリポジトリ・レポートの検出を追加
+- osv-scanner が使えない環境向けに、Python 標準ライブラリだけで OSV.dev に問い合わせる依存脆弱性検査（`sscan/osvlite.py`）を追加
+- 公開リポジトリの秘密情報を、push 済み／未push／フォーク元の履歴 で重要度を分けるように変更
 - 元 README にあった講座・法人相談の案内（広告）を削除
 
 元のプロジェクトの作者は、この Windows 版の内容について責任を負いません。不具合はこのリポジトリの Issue へお願いします。

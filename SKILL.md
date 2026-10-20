@@ -20,7 +20,7 @@ powershell -ExecutionPolicy Bypass -File "$SKILL/scripts/install-tools.ps1"   # 
 | モジュール | 必要なもの | 見るもの |
 |---|---|---|
 | `windows` | Windows 10 / 11（管理者権限不要） | サポート期限・BitLocker・ファイアウォール・Defender（リアルタイム保護・定義・改ざん防止・除外）・UAC・SmartScreen・セキュアブート・メモリ整合性・自動ログイン・画面ロック・RDP・SMBv1・Guest / 管理者グループ・Windows Update・待ち受けポート・共有・秘密ファイルの ACL・自動起動（Run・スタートアップ・タスク・サービス。SYSTEM 常駐が書き換え可能／未署名のファイルを起動していないか） |
-| `repos` | gitleaks / osv-scanner | 手元の全gitリポジトリのコミット履歴にある秘密情報（値は伏せ字）・.env のgit登録・依存パッケージの既知脆弱性・OneDrive 等の同期フォルダ内のリポジトリ |
+| `repos` | gitleaks / osv-scanner（起動できなければ内蔵の OSV.dev 検査に自動で切り替え） | 手元の全gitリポジトリのコミット履歴にある秘密情報（値は伏せ字）・.env のgit登録・依存パッケージの既知脆弱性・OneDrive 等の同期フォルダ内のリポジトリ |
 | `github` | `gh auth login` 済み | 本人と所属orgの2FA・2FA必須設定・未設定メンバー・公開リポ作成権限・外部コラボレーター・Webhook・Dependabot / Secret scanning |
 | `web` | `vercel login`（任意） | Vercel全チームの本番ドメイン＋設定のURL: HTTPS・証明書期限・ヘッダー・.env/.git の露出・プレビュー保護・ブラウザに出る秘密っぽい環境変数 |
 | `aws` | aws CLI のプロファイル | （リージョン単位の検査は既定で東京とバージニア）ルートMFA・MFAなしIAMユーザー・放置キー・公開S3・CloudTrail・GuardDuty・全開放の管理/DBポート・公開RDS |
@@ -80,7 +80,8 @@ powershell -ExecutionPolicy Bypass -File "$SKILL/scripts/install-schedule.ps1" -
 
 - `aws ... SSOの期限切れ` → `aws sso login --profile <名前>`
 - `gog ... invalid_grant` → `gog auth add <メール>` で再認証（ブラウザでの本人操作）
-- `osv-scanner.exe` / `gitleaks.exe` が「アクセスが拒否されました」→ ウイルス対策ソフトが未署名の exe を止めている。`bin` を除外に入れるか winget で入れ直す（本人の操作）
+- `osv-scanner.exe` が起動できない → 依存の検査は内蔵版（OSV.dev API）で続く。対応ファイル以外や、バージョン固定のない requirements は「確認できなかった項目」に出る
+- `gitleaks.exe` が「アクセスが拒否されました」→ ウイルス対策ソフトが未署名の exe を止めている。`bin` を除外に入れるか winget で入れ直す（本人の操作）
 - タスクスケジューラから gog が鍵束を開けない → gog の鍵束パスワード（`GOG_KEYRING_PASSWORD`）をユーザー環境変数に設定しておく
 - Defender の除外・共有フォルダが「確認できなかった」→ 管理者権限が必要。必要なら本人が管理者の PowerShell で `py -3 scan.py --only windows` を実行する
 - Google Workspace 全体の管理設定（社員の2段階認証の強制など）は Admin API の委任が要るため対象外。管理コンソールの「セキュリティの状況」で確認する

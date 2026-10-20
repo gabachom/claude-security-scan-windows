@@ -29,7 +29,7 @@ Windows 本体・手元の全gitリポジトリ・GitHub・Vercelと公開サイ
 | 領域 | 主なチェック |
 |---|---|
 | Windows本体 | サポート期限（Windows 10 / 11 の各版）・BitLocker / デバイスの暗号化・ファイアウォール（全プロファイル）・Microsoft Defender（リアルタイム保護・定義ファイル・改ざん防止・広すぎる除外）・UAC・SmartScreen・セキュアブート・メモリ整合性・自動ログインと平文パスワード・画面ロック／スリープ復帰時のサインイン・リモートデスクトップ（NLA）・SMBv1・Guest / Administrator・管理者グループ・未適用の Windows Update・外から接続できるポート・共有フォルダ・SSH秘密鍵や認証情報ファイルの ACL・`.git-credentials`・自動起動（Run キー・スタートアップ・タスクスケジューラ・サービス。SYSTEM 権限の常駐が書き換え可能／未署名のファイルを起動していないか、一時フォルダからの起動や難読化された PowerShell がないか） |
-| コード | 手元の全gitリポジトリのコミット履歴にある秘密情報（[gitleaks](https://github.com/gitleaks/gitleaks)・値は伏せ字）・`.env` のgit登録・依存パッケージの既知脆弱性（[osv-scanner](https://github.com/google/osv-scanner)）・OneDrive 等の同期フォルダ内のリポジトリ（除外したはずの `.env` がクラウドへ上がる） |
+| コード | 手元の全gitリポジトリのコミット履歴にある秘密情報（[gitleaks](https://github.com/gitleaks/gitleaks)・値は伏せ字）・`.env` のgit登録・依存パッケージの既知脆弱性（[osv-scanner](https://github.com/google/osv-scanner)、起動できなければ内蔵の [OSV.dev](https://osv.dev) 検査）・OneDrive 等の同期フォルダ内のリポジトリ（除外したはずの `.env` がクラウドへ上がる） |
 | GitHub | 本人と所属組織の2FA・2FA必須設定・未設定のメンバー・公開リポ作成権限・外部コラボレーター・Webhook・Dependabot / Secret scanning のアラート |
 | Webサイト・Vercel | 全チームの本番ドメイン: HTTPS・証明書期限・セキュリティヘッダー・`.env` / `.git` の露出・プレビューURLの保護・ブラウザに出てしまう秘密っぽい環境変数 |
 | AWS | ルートのMFA・MFAの無いIAMユーザー・放置されたアクセスキー・公開S3・CloudTrail・GuardDuty・全開放の管理/DBポート・公開RDS |
@@ -98,6 +98,7 @@ powershell -ExecutionPolicy Bypass -File "$S\scripts\install-schedule.ps1"   # �
 ## 安全のための作り
 
 - **読み取りだけ**: Windows はレジストリの読み取りと PowerShell の `Get-*` 系だけ、gog は `--readonly`、各クラウドは list / get / describe と API の GET だけ、Webサイトへも GET だけ
+- **外へ送るのは最小限**: 内蔵の依存検査が OSV.dev へ送るのはパッケージ名・バージョン・エコシステム名だけ（コードやパスは送らない。osv-scanner と同じ問い合わせ先）
 - **秘密の値を残さない**: gitleaks は `--redact`、Vercelの環境変数は名前と種類だけ、AWSのキーIDは末尾4桁、自動起動・タスク・サービスの起動引数は記録しない（危険な書き方かどうかの判定にだけ使う）、レジストリの平文パスワードは「有無」だけ。エラー文も伏せ字にしてから保存
 - **外から来た文字列をコードとして実行しない**: PowerShell へはスクリプトを `-EncodedCommand` で渡し、パス等のデータは環境変数の JSON で渡す。`gcloud.cmd` / `az.cmd` などのバッチ経由の CLI には、cmd.exe が解釈する文字を含む引数を渡さない
 - **見えなかったものを「解消」にしない**: 取得に失敗した範囲（アカウント・組織・リポジトリ単位）の指摘は、前回との比較で「解消」にも「新規」にも数えない
@@ -119,7 +120,9 @@ powershell -ExecutionPolicy Bypass -File "$S\scripts\install-schedule.ps1"   # �
 
 ## つまずき
 
-- `osv-scanner.exe` / `gitleaks.exe` が「アクセスが拒否されました」で起動しない → ウイルス対策ソフトが未署名の実行ファイルを止めています。`bin` フォルダを除外に入れるか、`winget install Gitleaks.Gitleaks` / `winget install Google.OSVScanner` で入れ直してください（PATH 上のものを使います）
+- `osv-scanner.exe` が「アクセスが拒否されました」で起動しない → ウイルス対策ソフトが未署名の実行ファイルを止めています。そのままでも、依存パッケージの検査は内蔵版（Python だけで動き、ロックファイルのパッケージ名とバージョンを OSV.dev の公開APIに問い合わせる）に自動で切り替わります。
+  内蔵版が読むファイル: `package-lock.json` / `pnpm-lock.yaml` / `yarn.lock` / `requirements*.txt`（`==` で固定したもの）/ `poetry.lock` / `Pipfile.lock` / `uv.lock` / `pdm.lock` / `Cargo.lock` / `go.mod` / `Gemfile.lock` / `composer.lock`
+- `gitleaks.exe` が起動しない → `bin` フォルダをウイルス対策ソフトの除外に入れるか、`winget install Gitleaks.Gitleaks` で入れ直してください（PATH 上のものを使います）
 - `py` が見つからない → python.org のインストーラーで「py launcher」を有効にして入れ直す
 - タスクスケジューラから実行したときに通知が出ない → 設定 → システム → 通知 で「Windows PowerShell」の通知を許可する
 
