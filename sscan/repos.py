@@ -47,16 +47,36 @@ def _remote(repo: Path) -> str:
     return m.group(1).lower() if m else ""
 
 
-def _owners_and_public() -> tuple[set[str], set[str]]:
-    """自分と所属orgのアカウント名、そこが持つ public リポジトリ。"""
-    pub = set()
+def _owners_and_public() -> tuple[set[str], dict[str, str]]:
+    """自分と所属orgのアカウント名と、そこが持つ public リポジトリ（値はフォーク元。フォークでなければ空文字）。"""
+    pub: dict[str, str] = {}
     me, _ = run_json(["gh", "api", "user", "--jq", "{login: .login}"])
     orgs, _ = run_json(["gh", "api", "user/orgs", "--jq", "[.[].login]"])
     owners = ([me["login"]] if me else []) + (orgs or [])
     for o in owners:
-        data, _ = run_json(["gh", "repo", "list", o, "--visibility", "public", "--limit", "1000", "--json", "nameWithOwner"], 60)
-        pub |= {d["nameWithOwner"].lower() for d in data or []}
+        data, _ = run_json(["gh", "repo", "list", o, "--visibility", "public", "--limit", "1000", "--json", "nameWithOwner,isFork,parent"], 60)
+        for d in data or []:
+            par = d.get("parent") or {}
+            parent = f'{(par.get("owner") or {}).get("login", "")}/{par.get("name", "")}' if d.get("isFork") and par else ""
+            pub[d["nameWithOwner"].lower()] = parent.lower() if parent != "/" else ""
     return {o.lower() for o in owners}, pub
+
+
+def _commit_state(repo: Path, sha: str, parent: str, cache: dict) -> str:
+    """漏えいしたコミットの状態: parent（フォーク元にもある＝引き継いだ履歴）/ pushed（リモートのブランチにある）/ local（未push）。
+    リモートの状態は手元の追跡ブランチで判定する（fetch はしない）。"""
+    if not sha:
+        return "pushed"
+    if sha in cache:
+        return cache[sha]
+    state = "local"
+    rc, out, _ = run(["git", "-C", str(repo), "branch", "-r", "--contains", sha], 30)
+    if rc != 0 or out.strip():
+        state = "pushed"
+    if parent and run(["gh", "api", f"repos/{parent}/commits/{sha}", "--jq", ".sha"], 30)[0] == 0:
+        state = "parent"
+    cache[sha] = state
+    return state
 
 
 DEFAULT_ROOTS = ["~/dev", "~/work", "~/projects", "~/Project", "~/src", "~/code", "~/Developer", "~/repos", "~/git", "~/source/repos",
@@ -163,7 +183,7 @@ def _scan_dir(r: Result, d: Path):
         Path(rp).unlink(missing_ok=True)
 
 
-def _safe_repo(repo: Path, public: set[str], c: dict) -> Result:
+def _safe_repo(repo: Path, public: dict[str, str], c: dict) -> Result:
     try:
         return _scan_repo(repo, public, c)
     except Exception as e:  # noqa: BLE001  1リポの失敗で全体を止めない
@@ -176,10 +196,11 @@ def _label(repo: Path) -> str:
     return str(repo).replace(str(Path.home()), "~")
 
 
-def _scan_repo(repo: Path, public: set[str], c: dict) -> Result:
+def _scan_repo(repo: Path, public: dict[str, str], c: dict) -> Result:
     r = Result()
     remote = _remote(repo)
     is_public = remote in public
+    parent = public.get(remote, "")
     inactive = any(x in repo.as_posix() + "/" for x in ("/_archive/", "/_inactive/"))
     where = _label(repo) + (f"  ({remote}・公開)" if is_public else (f"  ({remote})" if remote else "  (リモートなし)"))
 
@@ -210,15 +231,34 @@ def _scan_repo(repo: Path, public: set[str], c: dict) -> Result:
                               "--report-format", "json", "--report-path", rp, "--exit-code", "0"], timeout=c.get("gitleaks_timeout", 600))
             if rc == 0:
                 leaks = json.loads(Path(rp).read_text(encoding="utf-8", errors="replace") or "[]")
-                by_rule: dict[str, list[str]] = {}
+                by_rule: dict[str, list[tuple[str, str]]] = {}
+                cache: dict[str, str] = {}
+                state_ja = {"local": "未push", "pushed": "push済み", "parent": "フォーク元の履歴"}
                 for l in leaks:
-                    by_rule.setdefault(l.get("RuleID", "?"), []).append(f'{l.get("File")}:{l.get("StartLine")} ({(l.get("Commit") or "")[:7]})')
-                for rule, locs in by_rule.items():
-                    sev = "critical" if is_public else ("medium" if inactive else "high")
+                    sha = l.get("Commit") or ""
+                    st = _commit_state(repo, sha, parent, cache) if is_public else "pushed"
+                    loc = f'{l.get("File")}:{l.get("StartLine")} ({sha[:7]}' + (f"・{state_ja[st]})" if is_public else ")")
+                    by_rule.setdefault(l.get("RuleID", "?"), []).append((st, loc))
+                for rule, items in by_rule.items():
+                    states = {st for st, _ in items}
+                    locs = sorted({loc for _, loc in items})
+                    fix = "①そのキーを発行元で無効化・再発行 ②テスト用の偽値なら .gitleaksignore に登録 ③公開リポなら履歴からの除去も検討（git filter-repo）"
+                    note = ""
+                    if is_public and "pushed" in states:
+                        sev = "critical"
+                    elif is_public and "local" in states:
+                        # 公開リポだがまだ push していない。push した瞬間に公開される
+                        sev = "high"
+                        note = "まだ push していないコミット（push すると公開リポで誰でも読める）\n"
+                        fix = "push する前にコミットからキーを取り除く（git reset / git commit --amend 等）。本物のキーなら念のため再発行も"
+                    elif is_public:  # 全部フォーク元の履歴
+                        sev = "low"
+                        note = f"フォーク元（{parent}）にも同じコミットがある。自分が入れたキーではない可能性が高い\n"
+                        fix = "自分のキーでなければ対応不要（気になればフォーク元に知らせる）。誤検知なら .gitleaksignore に登録"
+                    else:
+                        sev = "medium" if inactive else "high"
                     r.add(M, sev, f"コミット履歴に秘密情報らしき文字列: {rule}", where,
-                          f"{len(locs)}箇所（値は伏せ字）\n" + "\n".join(sorted(set(locs))[:15]),
-                          "①そのキーを発行元で無効化・再発行 ②テスト用の偽値なら .gitleaksignore に登録 ③公開リポなら履歴からの除去も検討（git filter-repo）",
-                          key=f"leak|{repo}|{rule}")
+                          note + f"{len(items)}箇所（値は伏せ字）\n" + "\n".join(locs[:15]), fix, key=f"leak|{repo}|{rule}")
             else:
                 r.cov(M, f"gitleaks {_label(repo)}", "error", short_err(err[-200:]), blocks=[("コミット履歴", _label(repo) + "  ")])
         finally:
